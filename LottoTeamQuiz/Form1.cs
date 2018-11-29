@@ -27,6 +27,7 @@ namespace LottoTeamQuiz
         private Uri uri;
         #endregion
 
+        List<Lotto> lottos = new List<Lotto>();
         public Form1()
         {
             InitializeComponent();
@@ -63,15 +64,6 @@ namespace LottoTeamQuiz
 
         private void LottoParser(int final)
         {
-            //if (final != 0)
-            //{
-            //    MessageBox.Show("값이 있어서 다시 파싱하지는 않아엽..");
-            //    return;
-            //}
-
-            //loading.BackColor = Color.FromArgb(0, 0, 0, 0);
-            //loading.Visible = true;
-
             using (SqlConnection con = new SqlConnection(dbstring))
             {
                 con.Open();
@@ -99,13 +91,21 @@ namespace LottoTeamQuiz
                     HtmlAgilityPack.HtmlDocument htmlDoc = new HtmlAgilityPack.HtmlDocument();
                     htmlDoc.LoadHtml(webString);
 
-                    //  다음 회차의 로또가 있는지를 체크함
+                    //  최신회차의 로또가 있는지를 검사함
+                    //  DB에 이전 회차까지의 당첨번호가 있다면 <DB의 내역을 가져온다>
+                    //  만약 DB에 당첨번호가 없다면 < 파싱해 0 ~ 최신회차까지의 데이터를 전부 파싱한다.
                     if (LottoValidChk(htmlDoc))
                     {
                         MessageBox.Show("최신회차의 로또가 아직 없어요.");
-                        break;
+                        //  최신회차가 없고 데이터베이스에 저장된 인스턴스의 마지막 회차가 0이 아니라면
+                        //  결국 디비가 최신이라는 의미임
+                        if (GetFinalNum() != 0)
+                        {
+                            DataSet();
+                            break;
+                        }
                     }
-                    
+
                     Lotto lotto = new Lotto();
                     string getInfo = htmlDoc.DocumentNode.SelectNodes("//meta")[3].GetAttributeValue("content", "");
                     lotto.LottoNum = Int32.Parse(getInfo.Remove(getInfo.IndexOf("회")).Remove(0, 4));
@@ -116,6 +116,7 @@ namespace LottoTeamQuiz
 
                     #endregion
 
+                    #region 상권이디테일
                     DetailLotto detailLotto = new DetailLotto();
 
                     detailLotto.LottoNum = Int32.Parse(getInfo.Remove(getInfo.IndexOf("회")).Remove(0, 4));
@@ -129,28 +130,42 @@ namespace LottoTeamQuiz
                     detailLotto.PersonPrice = new string[5] { htmlDoc.DocumentNode.SelectNodes("//tbody")[0].FirstChild.NextSibling.NextSibling.NextSibling.FirstChild.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.InnerText, htmlDoc.DocumentNode.SelectNodes("//tbody")[0].FirstChild.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.FirstChild.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.InnerText, htmlDoc.DocumentNode.SelectNodes("//tbody")[0].FirstChild.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.FirstChild.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.InnerText, htmlDoc.DocumentNode.SelectNodes("//tbody")[0].FirstChild.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.FirstChild.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.InnerText, htmlDoc.DocumentNode.SelectNodes("//tbody")[0].FirstChild.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.FirstChild.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.InnerText };
 
                     listDetailLotto.Add(detailLotto);
-
-                    #region DB Insert 시퀀스
-                    SqlCommand com = new SqlCommand();
-                    com.Connection = con;
-                    com.CommandType = CommandType.StoredProcedure;
-                    com.CommandText = "InsertLotto";
-
-                    com.Parameters.AddWithValue("@lottonum", lotto.LottoNum);
-                    com.Parameters.AddWithValue("@winningnum", lotto.WinningNum);
-                    com.Parameters.AddWithValue("@etc", lotto.Etc);
-
-                    com.ExecuteNonQuery();
-
                     #endregion
 
+                    DBInsert(con, lotto);
                 }
-                DataShow();
+                DataSet();
             }
 
         }
 
-        void DataShow()
+        /// <summary>
+        /// 디비에 insert함 타겟테이블은 lotto임
+        /// 추후 디테일 Insert할 경우 오버라이드 할것
+        /// </summary>
+        /// <param name="con">SqlConn 객체</param>
+        /// <param name="lotto">Lotto 클래스 객체 넣어줄것</param>
+        private static void DBInsert(SqlConnection con, Lotto lotto)
+        {
+            #region DB Insert 시퀀스
+            SqlCommand com = new SqlCommand();
+            com.Connection = con;
+            com.CommandType = CommandType.StoredProcedure;
+            com.CommandText = "InsertLotto";
+
+            com.Parameters.AddWithValue("@lottonum", lotto.LottoNum);
+            com.Parameters.AddWithValue("@winningnum", lotto.WinningNum);
+            com.Parameters.AddWithValue("@etc", lotto.Etc);
+
+            com.ExecuteNonQuery();
+
+            #endregion
+        }
+
+        /// <summary>
+        /// DataShow -> DataSet으로 .. 리스트에 값을 넣어주기로 함
+        /// </summary>
+        void DataSet()
         {
             using(SqlConnection con=new SqlConnection(dbstring))
             using (SqlCommand com = new SqlCommand())
@@ -162,18 +177,22 @@ namespace LottoTeamQuiz
 
                 SqlDataReader reader = com.ExecuteReader();
 
-                List<Lotto> list = new List<Lotto>();
+                cbo_lottoNum.Items.Add("전체");
                 while (reader.Read())
                 {
-                    Lotto lotto = 
-                        new Lotto(Convert.ToInt32(reader[0].ToString()), reader[1].ToString(), reader[2].ToString());
-                    list.Add(lotto);
+                    Lotto lotto = new Lotto(Convert.ToInt32(reader[0].ToString()), reader[1].ToString(), reader[2].ToString());
+                    lottos.Add(lotto);
 
                     cbo_lottoNum.Items.Add(lotto.LottoNum);
                 }
-                grid_Viewer.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.AllCells;
-                grid_Viewer.DataSource = list;
+                DataShow(lottos);
             }
+        }
+
+        private void DataShow(List<Lotto> list)
+        {
+            grid_Viewer.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.AllCells;
+            grid_Viewer.DataSource = list;
         }
 
 
@@ -265,26 +284,34 @@ namespace LottoTeamQuiz
             }
         }
 
+        /// <summary>
+        /// 콤보박스 변경시 해당 회차의 로또 정보가 나옴, 전체도 나오도록 추가했음
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void comboBox1_SelectedIndexChanged(object sender, EventArgs e)
         {
-            #region 이상권작성
-            listLotto1.Clear();
             grid_Viewer.DataSource = null;
 
-            Lotto lotto = new Lotto();
-            foreach (Lotto item in listLotto)
+            if (cbo_lottoNum.Text=="전체")
             {
-                if (item.LottoNum == Int32.Parse(cbo_lottoNum.Text))
+                grid_Viewer.DataSource = lottos;
+                return;
+            }
+            else
+            {
+                foreach (var item in lottos)
                 {
-                    lotto = new Lotto(item.LottoNum, item.WinningNum, item.Etc);
-                    listLotto1.Add(lotto);
+                    if (item.LottoNum == Convert.ToInt32(cbo_lottoNum.Text))
+                    {
+                        listLotto1.Clear();
+                        listLotto1.Add(new Lotto(item.LottoNum, item.WinningNum, item.Etc));
+                    }
                 }
             }
             grid_Viewer.DataSource = listLotto1;
-            #endregion
-
-            //수정한 이미지 출력
-            ImageShow(Split(lotto.WinningNum));
+            ImageShow(Split(listLotto1[0].WinningNum));
+            
         }
 
         /// <summary>
@@ -345,7 +372,7 @@ namespace LottoTeamQuiz
         }
 
         /// <summary>
-        /// 회차에 당첨번호가 있는지를 체크함
+        /// 회차에 당첨번호가 있는지를 체크함 , 당첨번호가 없다면 그 회차는 아직 발표가 나지 않음을 뜻함
         /// </summary>
         /// <param name="doc"></param>
         /// <returns>false : 당첨번호 있음 , true : 당첨번호 없음</returns>
